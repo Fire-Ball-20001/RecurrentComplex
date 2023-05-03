@@ -45,16 +45,19 @@ public class TransformerPillar extends TransformerSingleBlock<NBTNone>
 
     public IBlockState destState;
 
+    public boolean generateUpwards;
+
     public TransformerPillar()
     {
-        this(null, BlockExpression.of(RecurrentComplex.specialRegistry, Blocks.STONE, 0), Blocks.STONE.getDefaultState());
+        this(null, BlockExpression.of(RecurrentComplex.specialRegistry, Blocks.STONE, 0), Blocks.STONE.getDefaultState(), false);
     }
 
-    public TransformerPillar(@Nullable String id, String sourceExpression, IBlockState destState)
+    public TransformerPillar(@Nullable String id, String sourceExpression, IBlockState destState, boolean generateUpwards)
     {
         super(id != null ? id : randomID(TransformerPillar.class));
         this.sourceMatcher = ExpressionCache.of(new BlockExpression(RecurrentComplex.specialRegistry), sourceExpression);
         this.destState = destState;
+        this.generateUpwards = generateUpwards;
     }
 
     @Override
@@ -66,23 +69,27 @@ public class TransformerPillar extends TransformerSingleBlock<NBTNone>
     @Override
     public void transformBlock(NBTNone instanceData, Phase phase, StructureSpawnContext context, RunTransformer transformer, int[] areaSize, BlockPos coord, IBlockState sourceState)
     {
-        if (RecurrentComplex.specialRegistry.isSafe(destState.getBlock()))
-        {
-            // TODO Fix for partial generation
-            World world = context.environment.world;
+        if (!RecurrentComplex.specialRegistry.isSafe(destState.getBlock())) {
+            return;
+        }
 
-            int y = coord.getY();
+        int direction = generateUpwards ? 1 : -1;
 
-            do
-            {
-                BlockPos pos = new BlockPos(coord.getX(), y--, coord.getZ());
-                context.setBlock(pos, destState, 2);
+        // TODO Fix for partial generation
+        World world = context.environment.world;
 
-                IBlockState blockState = world.getBlockState(pos);
-                if (!(blockState.getBlock().isReplaceable(world, pos) || blockState.getMaterial() == Material.LEAVES || blockState.getBlock().isFoliage(world, pos)))
-                    break;
-            }
-            while (y > 0);
+        // Replace original block always
+        context.setBlock(coord, destState, 2);
+
+        // Replace down until we find a solid block
+        for (int y = coord.getY() + direction; y > 0 && y < world.getHeight(); y = y + direction) {
+            BlockPos pos = new BlockPos(coord.getX(), y, coord.getZ());
+
+            IBlockState blockState = world.getBlockState(pos);
+            if (!(blockState.getBlock().isReplaceable(world, pos) || blockState.getMaterial() == Material.LEAVES || blockState.getBlock().isFoliage(world, pos)))
+                break;
+
+            context.setBlock(pos, destState, 2);
         }
     }
 
@@ -142,7 +149,9 @@ public class TransformerPillar extends TransformerSingleBlock<NBTNone>
             Block dest = registry.blockFromID(new ResourceLocation(destBlock));
             IBlockState destState = dest != null ? BlockStates.fromMetadata(dest, JsonUtils.getInt(jsonObject, "destMetadata")) : null;
 
-            return new TransformerPillar(id, expression, destState);
+            boolean generateUpwards = JsonUtils.getBoolean(jsonObject, "generateUpwards", false);
+
+            return new TransformerPillar(id, expression, destState, generateUpwards);
         }
 
         @Override
@@ -155,6 +164,8 @@ public class TransformerPillar extends TransformerSingleBlock<NBTNone>
 
             jsonObject.addProperty("dest", registry.idFromBlock(transformer.destState.getBlock()).toString());
             jsonObject.addProperty("destMetadata", ivorius.ivtoolkit.blocks.BlockStates.toMetadata(transformer.destState));
+
+            jsonObject.addProperty("generateUpwards", transformer.generateUpwards);
 
             return jsonObject;
         }
